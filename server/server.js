@@ -23,12 +23,18 @@ const app = express();
 app.use(express.json());
 
 // Simple CORS setup so CRA (port 3000) can call it:
+const allowedOrigins = ['http://localhost:3000', 'https://img-upload-library.onrender.com'];
+
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
   res.header('Access-Control-Allow-Methods', 'GET,POST,DELETE');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
   next();
 });
+
 
 // ✅ GET /api/projects — list all projects
 app.get('/api/projects', async (req, res) => {
