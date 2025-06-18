@@ -576,9 +576,4 @@ async function scrapeFromWikimedia(projectId, keyword, seen) {
   return added;
 }
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
-
 ;
