@@ -10,9 +10,18 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    fetchProjects();
-  }, []);
+useEffect(() => {
+  const fetchProjects = async () => {
+    try {
+      const res = await axios.get('/api/projects');
+      setProjects(res.data.projects || []);
+    } catch (err) {
+      console.error('❌ Error fetching projects:', err); // Add this
+      setError('Unable to load projects. Make sure your backend is running.');
+    }
+  };
+  fetchProjects();
+}, []);
 
   async function fetchProjects() {
     try {
@@ -144,6 +153,7 @@ const [keywords, setKeywords] = useState('');
 const [selectedImageSite, setSelectedImageSite] = useState('unsplash');
 const [imageLang, setImageLang] = useState('en');
 const [csvFile, setCsvFile] = useState(null);
+const [isAdding, setIsAdding] = useState(false);
 
 const th = {
   padding: '6px',
@@ -233,6 +243,7 @@ async function handleAdd() {
   const urlList = urls.split('\n').map(u => u.trim()).filter(Boolean);
 
   try {
+    setIsAdding(true); // Start loading
     const payload = {
       mode: addMode,
       site: selectedImageSite,
@@ -256,9 +267,10 @@ async function handleAdd() {
   } catch (err) {
     console.error('Add failed', err);
     onError('Failed to add photos.');
+  } finally {
+    setIsAdding(false); // End loading
   }
 }
-
 
 
 
@@ -401,12 +413,20 @@ async function handleDeleteSelected() {
       />
     )}
 
-    <button
-      style={{ padding: '8px 16px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-      onClick={handleAdd}
-    >
-      Add
-    </button>
+<button
+  style={{
+    padding: '8px 16px',
+    backgroundColor: isAdding ? '#9CA3AF' : '#10B981',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: isAdding ? 'not-allowed' : 'pointer'
+  }}
+  disabled={isAdding}
+  onClick={handleAdd}
+>
+  {isAdding ? 'Adding...' : 'Add'}
+</button>
     {addedCount !== null && <p style={{ marginTop: '8px' }}>Added {addedCount} new photos.</p>}
   </div>
 )}

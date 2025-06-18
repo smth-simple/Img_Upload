@@ -10,9 +10,18 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    fetchProjects();
-  }, []);
+useEffect(() => {
+  const fetchProjects = async () => {
+    try {
+      const res = await axios.get('/api/projects');
+      setProjects(res.data.projects || []);
+    } catch (err) {
+      console.error('❌ Error fetching projects:', err); // Add this
+      setError('Unable to load projects. Make sure your backend is running.');
+    }
+  };
+  fetchProjects();
+}, []);
 
   async function fetchProjects() {
     try {
@@ -142,8 +151,9 @@ function ProjectScreen({ project, onBack, onError }) {
   const [addMode, setAddMode] = useState('image-database');
 const [keywords, setKeywords] = useState('');
 const [selectedImageSite, setSelectedImageSite] = useState('unsplash');
-const [imageLang, setImageLang] = useState('en');
+const [imageLocale, setImageLocale] = useState('');
 const [csvFile, setCsvFile] = useState(null);
+const [isAdding, setIsAdding] = useState(false);
 
 const th = {
   padding: '6px',
@@ -233,6 +243,7 @@ async function handleAdd() {
   const urlList = urls.split('\n').map(u => u.trim()).filter(Boolean);
 
   try {
+    setIsAdding(true); // Start loading
     const payload = {
       mode: addMode,
       site: selectedImageSite,
@@ -240,10 +251,10 @@ async function handleAdd() {
       urls: urlList,
     };
 
-    if (selectedImageSite === 'pixabay') {
-      payload.imageLang = imageLang;
-    }
-
+    if (selectedImageSite === 'pixabay' || selectedImageSite === 'pexels') {
+  payload.imageLocale = imageLocale;
+}
+    
     const { data } = await axios.post(
       `/api/projects/${project._id}/photos/scrape`,
       payload
@@ -256,9 +267,10 @@ async function handleAdd() {
   } catch (err) {
     console.error('Add failed', err);
     onError('Failed to add photos.');
+  } finally {
+    setIsAdding(false); // End loading
   }
 }
-
 
 
 
@@ -341,8 +353,8 @@ async function handleDeleteSelected() {
   <div style={{ marginTop: '10px' }}>
     <label style={{ fontWeight: 'bold' }}>Language:</label>
     <select
-      value={imageLang}
-      onChange={e => setImageLang(e.target.value)}
+      value={imageLocale}
+      onChange={e => setImageLocale(e.target.value)}
       style={{ marginLeft: '8px' }}
     >
       <option value="">None</option>
@@ -376,6 +388,46 @@ async function handleDeleteSelected() {
   </div>
 )}
 
+{selectedImageSite === 'pexels' && (
+  <div style={{ marginTop: '10px' }}>
+    <label style={{ fontWeight: 'bold' }}>Locale:</label>
+    <select
+      value={imageLocale}
+      onChange={e => setImageLocale(e.target.value)}
+      style={{ marginLeft: '8px' }}
+    >
+      <option value="">None</option>
+      <option value="en-US">English (US)</option>
+      <option value="pt-BR">Portuguese (Brazil)</option>
+      <option value="es-ES">Spanish (Spain)</option>
+      <option value="ca-ES">Catalan (Spain)</option>
+      <option value="de-DE">German</option>
+      <option value="it-IT">Italian</option>
+      <option value="fr-FR">French</option>
+      <option value="sv-SE">Swedish</option>
+      <option value="id-ID">Indonesian</option>
+      <option value="pl-PL">Polish</option>
+      <option value="ja-JP">Japanese</option>
+      <option value="zh-TW">Chinese (Taiwan)</option>
+      <option value="zh-CN">Chinese (China)</option>
+      <option value="ko-KR">Korean</option>
+      <option value="th-TH">Thai</option>
+      <option value="nl-NL">Dutch</option>
+      <option value="hu-HU">Hungarian</option>
+      <option value="vi-VN">Vietnamese</option>
+      <option value="cs-CZ">Czech</option>
+      <option value="da-DK">Danish</option>
+      <option value="fi-FI">Finnish</option>
+      <option value="uk-UA">Ukrainian</option>
+      <option value="el-GR">Greek</option>
+      <option value="ro-RO">Romanian</option>
+      <option value="nb-NO">Norwegian</option>
+      <option value="sk-SK">Slovak</option>
+      <option value="tr-TR">Turkish</option>
+      <option value="ru-RU">Russian</option>
+    </select>
+  </div>
+)}
 
     <div style={{ marginTop: '10px' }}>
       <label style={{ fontWeight: 'bold' }}>Keywords (one per line):</label>
@@ -401,12 +453,20 @@ async function handleDeleteSelected() {
       />
     )}
 
-    <button
-      style={{ padding: '8px 16px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-      onClick={handleAdd}
-    >
-      Add
-    </button>
+<button
+  style={{
+    padding: '8px 16px',
+    backgroundColor: isAdding ? '#9CA3AF' : '#10B981',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: isAdding ? 'not-allowed' : 'pointer'
+  }}
+  disabled={isAdding}
+  onClick={handleAdd}
+>
+  {isAdding ? 'Adding...' : 'Add'}
+</button>
     {addedCount !== null && <p style={{ marginTop: '8px' }}>Added {addedCount} new photos.</p>}
   </div>
 )}

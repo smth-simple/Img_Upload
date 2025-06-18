@@ -140,10 +140,14 @@ if (mode === 'image-database') {
   let added = 0;
 
   for (const keyword of keywords) {
-    if (site === 'pexels') {
-      added += await scrapeFromPexels(projectId, keyword, seen);
+if (site === 'pexels') {
+      const lang = req.body.pexelsLocale || req.body.imageLocale || req.body.locale || '';
+    console.log('📩 Full request body:', req.body);
+    console.log(`🔍 Scraping ${site} with keyword="${keyword}" and locale="${lang}"`);
+      added += await scrapeFromPexels(projectId, keyword, seen, lang);
     } else if (site === 'pixabay') {
-      added += await scrapeFromPixabay(projectId, keyword, seen, imageLang || '');
+        const lang = req.body.pexelsLocale || req.body.imageLocale || req.body.locale || '';
+        added += await scrapeFromPixabay(projectId, keyword, seen, lang || '');
     } else if (site === 'unsplash') {
       added += await scrapeFromUnsplash(projectId, keyword, seen);
     } else if (site === 'Freepik') {
@@ -314,10 +318,11 @@ function buildSearchUrl(site, keyword) {
       return null;
   }
 }
-async function scrapeFromPexels(projectId, keyword, seen) {
+
+async function scrapeFromPexels(projectId, keyword, seen, locale = '') {
   const API_KEY = process.env.PEXELS_API_KEY;
   const PER_PAGE = 80;
-  const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(keyword)}&per_page=${PER_PAGE}&page=1`;
+  const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(keyword)}&per_page=${PER_PAGE}${locale ? `&locale=${locale}` : ''}`;
 
   try {
     const { data } = await axios.get(url, {
@@ -336,18 +341,19 @@ async function scrapeFromPexels(projectId, keyword, seen) {
       const exists = await Photo.exists({ projectId, url: imageUrl });
       if (!exists) {
         await Photo.create({
-        projectId,
-        url: imageUrl,
-        description: photo.alt || null,
-        locale: photo.location?.country || null,
-        usageCount: 0,
-        metadata: {
+          projectId,
+          url: imageUrl,
+          description: photo.alt || null,
+          locale: locale || null,
+          usageCount: 0,
+          metadata: {
             width: photo.width,
             height: photo.height,
             photographer: photo.photographer,
             source: 'pexels',
-            keyword
-        }
+            keyword,
+            locale
+          }
         });
 
         added++;
@@ -361,11 +367,13 @@ async function scrapeFromPexels(projectId, keyword, seen) {
   }
 }
 
+
 async function scrapeFromUnsplash(projectId, keyword, seen) {
-  const accessKey = process.env.UNSPLASH_ACCESS_KEY; // Hardcoded for now
+  const accessKey = process.env.UNSPLASH_ACCESS_KEY;
   const perPage = 30;
   let added = 0;
-console.log('Unsplash Key:', process.env.UNSPLASH_ACCESS_KEY);
+
+  console.log('🔑 Using Unsplash key:', accessKey);
 
   try {
     const { data } = await axios.get('https://api.unsplash.com/search/photos', {
@@ -384,20 +392,34 @@ console.log('Unsplash Key:', process.env.UNSPLASH_ACCESS_KEY);
       if (!imageUrl || seen.has(imageUrl)) continue;
       seen.add(imageUrl);
 
+      // Make additional API call for full metadata
+      let country = null;
+      try {
+        const detailRes = await axios.get(`https://api.unsplash.com/photos/${photo.id}`, {
+          headers: {
+            Authorization: `Client-ID ${accessKey}`
+          }
+        });
+        country = detailRes.data.location?.country || null;
+      } catch (detailErr) {
+        console.warn(`  ↳ Failed to fetch location for photo ID ${photo.id}`);
+      }
+
       const exists = await Photo.exists({ projectId, url: imageUrl });
       if (!exists) {
         await Photo.create({
           projectId,
           url: imageUrl,
           description: photo.alt_description || photo.description || null,
-          locale: photo.location?.country || null,
+          locale: country || null,
           usageCount: 0,
           metadata: {
             width: photo.width,
             height: photo.height,
             photographer: photo.user?.name,
             source: 'unsplash',
-            keyword
+            keyword,
+            country
           }
         });
         added++;
@@ -406,7 +428,7 @@ console.log('Unsplash Key:', process.env.UNSPLASH_ACCESS_KEY);
 
     return added;
   } catch (err) {
-    console.warn(`Error fetching from Unsplash for "${keyword}":`, err.message);
+    console.warn(`❌ Error fetching from Unsplash for "${keyword}":`, err.message);
     return 0;
   }
 }
@@ -427,8 +449,10 @@ async function scrapeFromPixabay(projectId, keyword, seen, lang = '') {
       params.append('lang', lang);
     }
 
-    const url = `https://pixabay.com/api/?${params.toString()}`;
-    const { data } = await axios.get(url);
+    const apiUrl = `https://pixabay.com/api/?${params.toString()}`;
+    console.log('📷 Pixabay URL:', apiUrl);
+
+    const { data } = await axios.get(apiUrl);
 
     for (const photo of data.hits || []) {
       const imageUrl = photo.largeImageURL;
@@ -461,6 +485,8 @@ async function scrapeFromPixabay(projectId, keyword, seen, lang = '') {
 
   return added;
 }
+
+
 
 async function scrapeFromFreepik(projectId, keyword, seen) {
   let added = 0;
@@ -581,5 +607,11 @@ async function scrapeFromWikimedia(projectId, keyword, seen) {
 
   return added;
 }
+
+// get backend good and running
+app.get('/', (req, res) => {
+  res.send('✅ Backend is up and running');
+});
+
 
 ;
