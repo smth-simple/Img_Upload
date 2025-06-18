@@ -1,6 +1,5 @@
 // server/server.js
 import dotenv from 'dotenv';
-dotenv.config();
 import express from 'express';
 import mongoose from 'mongoose';
 import Project from './models/Project.js'; // ✅ import your model
@@ -12,6 +11,8 @@ import csvParser from 'csv-parser';
 import multer from 'multer';
 import { Parser } from 'json2csv';
 import fs from 'fs';
+
+dotenv.config({ path: '../.env' });
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -308,7 +309,7 @@ function buildSearchUrl(site, keyword) {
   }
 }
 async function scrapeFromPexels(projectId, keyword, seen) {
-  const API_KEY = 'HNjbZWYH8fmuk4UGnDgzNCkmg8q0vwQ2T9Wwu8umDOu36IMfD8wNB44V';
+  const API_KEY = process.env.PEXELS_API_KEY;
   const PER_PAGE = 80;
   const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(keyword)}&per_page=${PER_PAGE}&page=1`;
 
@@ -355,9 +356,10 @@ async function scrapeFromPexels(projectId, keyword, seen) {
 }
 
 async function scrapeFromUnsplash(projectId, keyword, seen) {
-  const accessKey = 'CiK7E0VUVrAG6MHnFL4mXLZsGWUV5ara1yN-w_hYheE'; // Hardcoded for now
+  const accessKey = process.env.UNSPLASH_ACCESS_KEY; // Hardcoded for now
   const perPage = 30;
   let added = 0;
+console.log('Unsplash Key:', process.env.UNSPLASH_ACCESS_KEY);
 
   try {
     const { data } = await axios.get('https://api.unsplash.com/search/photos', {
@@ -404,7 +406,7 @@ async function scrapeFromUnsplash(projectId, keyword, seen) {
 }
 
 async function scrapeFromPixabay(projectId, keyword, seen, lang = '') {
-  const API_KEY = '50915934-18b9f0ee7ecef6fa0f40bbb21';
+  const API_KEY = process.env.PIXABAY_API_KEY;
   let added = 0;
 
   try {
