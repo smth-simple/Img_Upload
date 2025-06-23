@@ -14,6 +14,11 @@ import fs from 'fs';
 
 dotenv.config({ path: '../.env' });
 
+// import cors from 'cors';
+// app.use(cors({
+//   origin: 'https://img-upload-library.onrender.com'
+// }));
+
 const upload = multer({ dest: 'uploads/' });
 
 const PORT = process.env.PORT || 5000;
@@ -34,7 +39,6 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Headers', 'Content-Type');
   next();
 });
-
 
 // ✅ GET /api/projects — list all projects
 app.get('/api/projects', async (req, res) => {
@@ -66,7 +70,243 @@ app.post('/api/projects', async (req, res) => {
   }
 });
 
-// import
+// ✅ PUT /api/projects/:id — rename a project
+app.put('/api/projects/:id', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    // Check if another project already has this name
+    const existing = await Project.findOne({ name: name.trim(), _id: { $ne: req.params.id } });
+    if (existing) {
+      return res.status(409).json({ error: 'A project with this name already exists' });
+    }
+
+    const project = await Project.findByIdAndUpdate(
+      req.params.id,
+      { name: name.trim() },
+      { new: true }
+    );
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    res.json({ project });
+  } catch (err) {
+    console.error('Update project error:', err);
+    res.status(500).json({ error: 'Failed to update project' });
+  }
+});
+
+// ✅ DELETE /api/projects/:id — delete a project
+app.delete('/api/projects/:id', async (req, res) => {
+  try {
+    const result = await Project.findByIdAndDelete(req.params.id);
+    if (!result) return res.status(404).json({ error: 'Project not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete project error:', err);
+    res.status(500).json({ error: 'Failed to delete project' });
+  }
+});
+
+// ✅ UPDATED: GET /api/projects/:id/photos — get photos with filtering and pagination
+app.get('/api/projects/:id/photos', async (req, res) => {
+  try {
+    const projectId = req.params.id;
+    const { 
+      page = 1, 
+      limit = 100, 
+      language, 
+      locale, 
+      textAmount, 
+      imageType, 
+      usage 
+    } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Build filter object
+    const filter = { projectId };
+    
+    // Add filters if they exist - handle both single values and arrays
+    if (language && language !== '') {
+      const languages = Array.isArray(language) ? language : [language];
+      if (languages.length > 0) filter.language = { $in: languages };
+    }
+    if (locale && locale !== '') {
+      const locales = Array.isArray(locale) ? locale : [locale];
+      if (locales.length > 0) filter.locale = { $in: locales };
+    }
+    if (textAmount && textAmount !== '') {
+      const textAmounts = Array.isArray(textAmount) ? textAmount : [textAmount];
+      if (textAmounts.length > 0) filter.textAmount = { $in: textAmounts };
+    }
+    if (imageType && imageType !== '') {
+      const imageTypes = Array.isArray(imageType) ? imageType : [imageType];
+      if (imageTypes.length > 0) filter.imageType = { $in: imageTypes };
+    }
+    
+    // Handle usage filter (updated for new ranges and multiple selections)
+    if (usage && usage !== '') {
+      const usages = Array.isArray(usage) ? usage : [usage];
+      const usageConditions = [];
+      
+      usages.forEach(u => {
+        switch (u) {
+          case '0':
+            usageConditions.push({ usageCount: 0 });
+            break;
+          case '1':
+            usageConditions.push({ usageCount: 1 });
+            break;
+          case '2':
+            usageConditions.push({ usageCount: 2 });
+            break;
+          case '3':
+            usageConditions.push({ usageCount: 3 });
+            break;
+          case '4+':
+            usageConditions.push({ usageCount: { $gte: 4 } });
+            break;
+        }
+      });
+      
+      if (usageConditions.length > 0) {
+        filter.$or = usageConditions;
+      }
+    }
+
+    console.log('🔍 Filter applied:', filter);
+
+    // Get total count (unfiltered)
+    const totalPhotos = await Photo.countDocuments({ projectId });
+    
+    // Get filtered count
+    const filteredCount = await Photo.countDocuments(filter);
+    
+    // Get paginated photos with filters
+    const photos = await Photo.find(filter)
+      .sort({ _id: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    // Get available filter options (for dropdowns)
+    const availableFilters = {
+      languages: await Photo.distinct('language', { projectId }),
+      locales: await Photo.distinct('locale', { projectId }),
+      textAmounts: await Photo.distinct('textAmount', { projectId }),
+      imageTypes: await Photo.distinct('imageType', { projectId })
+    };
+
+    // Clean up null/undefined values from filter options
+    availableFilters.languages = availableFilters.languages.filter(Boolean);
+    availableFilters.locales = availableFilters.locales.filter(Boolean);
+    availableFilters.textAmounts = availableFilters.textAmounts.filter(Boolean);
+    availableFilters.imageTypes = availableFilters.imageTypes.filter(Boolean);
+
+    console.log(`📊 Results: ${photos.length} photos (${filteredCount} total filtered, ${totalPhotos} total)`);
+
+    res.json({ 
+      photos, 
+      total: totalPhotos,
+      filteredCount,
+      availableFilters,
+      page: parseInt(page),
+      hasMore: photos.length === parseInt(limit)
+    });
+
+  } catch (err) {
+    console.error('Error loading filtered photos:', err);
+    res.status(500).json({ error: 'Failed to load photos' });
+  }
+});
+
+// ✅ NEW: GET /api/projects/:id/photos/ids — get all photo IDs for filtered results (for "Select All Filtered")
+app.get('/api/projects/:id/photos/ids', async (req, res) => {
+  try {
+    const projectId = req.params.id;
+    const { 
+      language, 
+      locale, 
+      textAmount, 
+      imageType, 
+      usage 
+    } = req.query;
+
+    // Build filter object (same logic as main endpoint)
+    const filter = { projectId };
+    
+    if (language && language !== '') {
+      const languages = Array.isArray(language) ? language : [language];
+      if (languages.length > 0) filter.language = { $in: languages };
+    }
+    if (locale && locale !== '') {
+      const locales = Array.isArray(locale) ? locale : [locale];
+      if (locales.length > 0) filter.locale = { $in: locales };
+    }
+    if (textAmount && textAmount !== '') {
+      const textAmounts = Array.isArray(textAmount) ? textAmount : [textAmount];
+      if (textAmounts.length > 0) filter.textAmount = { $in: textAmounts };
+    }
+    if (imageType && imageType !== '') {
+      const imageTypes = Array.isArray(imageType) ? imageType : [imageType];
+      if (imageTypes.length > 0) filter.imageType = { $in: imageTypes };
+    }
+    
+    // Handle usage filter
+    if (usage && usage !== '') {
+      const usages = Array.isArray(usage) ? usage : [usage];
+      const usageConditions = [];
+      
+      usages.forEach(u => {
+        switch (u) {
+          case '0':
+            usageConditions.push({ usageCount: 0 });
+            break;
+          case '1':
+            usageConditions.push({ usageCount: 1 });
+            break;
+          case '2':
+            usageConditions.push({ usageCount: 2 });
+            break;
+          case '3':
+            usageConditions.push({ usageCount: 3 });
+            break;
+          case '4+':
+            usageConditions.push({ usageCount: { $gte: 4 } });
+            break;
+        }
+      });
+      
+      if (usageConditions.length > 0) {
+        filter.$or = usageConditions;
+      }
+    }
+
+    console.log('🔍 Getting all IDs for filter:', filter);
+
+    // Get all photo IDs that match the filter (no pagination)
+    const photoIds = await Photo.find(filter).select('_id').lean();
+    const ids = photoIds.map(photo => photo._id.toString());
+
+    console.log(`📊 Found ${ids.length} photo IDs matching filter`);
+
+    res.json({ 
+      photoIds: ids,
+      count: ids.length
+    });
+
+  } catch (err) {
+    console.error('Error getting filtered photo IDs:', err);
+    res.status(500).json({ error: 'Failed to get photo IDs' });
+  }
+});
+
+// ✅ POST /api/projects/:projectId/photos/import — import photos from CSV
 app.post('/api/projects/:projectId/photos/import', upload.single('csv'), async (req, res) => {
   const { projectId } = req.params;
   const filePath = req.file?.path;
@@ -112,7 +352,7 @@ app.post('/api/projects/:projectId/photos/import', upload.single('csv'), async (
     });
 });
 
-// Export
+// ✅ GET /api/projects/:projectId/photos/export — export photos to CSV
 app.get('/api/projects/:projectId/photos/export', async (req, res) => {
   const { projectId } = req.params;
   const photos = await Photo.find({ projectId });
@@ -126,45 +366,213 @@ app.get('/api/projects/:projectId/photos/export', async (req, res) => {
   res.send(csv);
 });
 
-// Website scraper
+// ✅ WORKING VERSION: GET /api/projects/:id/photos/distribution  
+app.get('/api/projects/:id/photos/distribution', async (req, res) => {
+  try {
+    const projectId = req.params.id;
+    const { 
+      language, 
+      locale, 
+      textAmount, 
+      imageType, 
+      usage 
+    } = req.query;
+
+    // Build filter object (same logic as main endpoint)
+    const filter = { projectId };
+    
+    if (language && language !== '') {
+      const languages = Array.isArray(language) ? language : [language];
+      if (languages.length > 0) filter.language = { $in: languages };
+    }
+    if (locale && locale !== '') {
+      const locales = Array.isArray(locale) ? locale : [locale];
+      if (locales.length > 0) filter.locale = { $in: locales };
+    }
+    if (textAmount && textAmount !== '') {
+      const textAmounts = Array.isArray(textAmount) ? textAmount : [textAmount];
+      if (textAmounts.length > 0) filter.textAmount = { $in: textAmounts };
+    }
+    if (imageType && imageType !== '') {
+      const imageTypes = Array.isArray(imageType) ? imageType : [imageType];
+      if (imageTypes.length > 0) filter.imageType = { $in: imageTypes };
+    }
+    
+    // Handle usage filter
+    if (usage && usage !== '') {
+      const usages = Array.isArray(usage) ? usage : [usage];
+      const usageConditions = [];
+      
+      usages.forEach(u => {
+        switch (u) {
+          case '0':
+            usageConditions.push({ usageCount: 0 });
+            break;
+          case '1':
+            usageConditions.push({ usageCount: 1 });
+            break;
+          case '2':
+            usageConditions.push({ usageCount: 2 });
+            break;
+          case '3':
+            usageConditions.push({ usageCount: 3 });
+            break;
+          case '4+':
+            usageConditions.push({ usageCount: { $gte: 4 } });
+            break;
+        }
+      });
+      
+      if (usageConditions.length > 0) {
+        filter.$or = usageConditions;
+      }
+    }
+
+    console.log(`📊 Getting distribution for filter: ${JSON.stringify(filter)}`);
+
+    // Get distinct values for all fields
+    const [distinctLanguages, distinctLocales, distinctTextAmounts, distinctImageTypes] = await Promise.all([
+      Photo.distinct('language', filter),
+      Photo.distinct('locale', filter),
+      Photo.distinct('textAmount', filter),
+      Photo.distinct('imageType', filter)
+    ]);
+
+    console.log(`📊 Found ${distinctLanguages.length} languages, ${distinctLocales.length} locales, ${distinctTextAmounts.length} text amounts, ${distinctImageTypes.length} image types`);
+
+    const results = {
+      languages: [],
+      locales: [],
+      textAmounts: [],
+      imageTypes: []
+    };
+
+    // Count languages manually (all of them since there's usually not many)
+    for (const lang of distinctLanguages) {
+      const count = await Photo.countDocuments({ ...filter, language: lang });
+      results.languages.push({ 
+        name: lang === null ? 'None' : lang, 
+        count 
+      });
+    }
+
+    // Count ALL locales manually, then take top 50
+    const localePromises = distinctLocales.map(async (locale) => {
+      const count = await Photo.countDocuments({ ...filter, locale: locale });
+      return { 
+        name: locale === null ? 'None' : locale, 
+        count 
+      };
+    });
+    const allLocaleResults = await Promise.all(localePromises);
+    allLocaleResults.sort((a, b) => b.count - a.count);
+    results.locales = allLocaleResults.slice(0, 50); // Top 50 by count
+
+    // Count text amounts manually (all of them since there are only a few)
+    for (const textAmount of distinctTextAmounts) {
+      const count = await Photo.countDocuments({ ...filter, textAmount: textAmount });
+      results.textAmounts.push({ 
+        name: textAmount === null ? 'None' : textAmount, 
+        count 
+      });
+    }
+
+    // Count ALL image types manually, then take top 20
+    const imageTypePromises = distinctImageTypes.map(async (imageType) => {
+      const count = await Photo.countDocuments({ ...filter, imageType: imageType });
+      return { 
+        name: imageType === null ? 'None' : imageType, 
+        count 
+      };
+    });
+    const allImageTypeResults = await Promise.all(imageTypePromises);
+    allImageTypeResults.sort((a, b) => b.count - a.count);
+    results.imageTypes = allImageTypeResults.slice(0, 20); // Top 20 by count
+
+    // Sort final results by count
+    results.languages.sort((a, b) => b.count - a.count);
+    results.textAmounts.sort((a, b) => b.count - a.count);
+
+    console.log(`📈 Final distribution results:`);
+    console.log(`  Languages: ${results.languages.length} items`);
+    console.log(`  Locales: ${results.locales.length} items (top 50)`);
+    console.log(`  TextAmounts: ${results.textAmounts.length} items`);
+    console.log(`  ImageTypes: ${results.imageTypes.length} items (top 20)`);
+
+    res.json(results);
+
+  } catch (err) {
+    console.error('❌ Error getting distribution data:', err);
+    res.status(500).json({ error: 'Failed to get distribution data' });
+  }
+});
+
+
+// ✅ POST /api/projects/:id/photos/scrape — scrape photos from various sources
 app.post('/api/projects/:id/photos/scrape', async (req, res) => {
   const projectId = req.params.id;
-  const { mode, site, keywords, urls } = req.body;
+  const { mode, sites, languages, keywords, urls } = req.body;
 
-if (mode === 'image-database') {
-  if (!Array.isArray(keywords) || !site) {
-    return res.status(400).json({ error: 'Missing keywords or site' });
-  }
-
-  const seen = new Set();
-  let added = 0;
-
-  for (const keyword of keywords) {
-if (site === 'pexels') {
-      const lang = req.body.pexelsLocale || req.body.imageLocale || req.body.locale || '';
-    console.log('📩 Full request body:', req.body);
-    console.log(`🔍 Scraping ${site} with keyword="${keyword}" and locale="${lang}"`);
-      added += await scrapeFromPexels(projectId, keyword, seen, lang);
-    } else if (site === 'pixabay') {
-        const lang = req.body.pexelsLocale || req.body.imageLocale || req.body.locale || '';
-        added += await scrapeFromPixabay(projectId, keyword, seen, lang || '');
-    } else if (site === 'unsplash') {
-      added += await scrapeFromUnsplash(projectId, keyword, seen);
-    } else if (site === 'Freepik') {
-      added += await scrapeFromFreepik(projectId, keyword, seen);
-    } else if (site === 'Wikimedia Commons') {
-      added += await scrapeFromWikimedia(projectId, keyword, seen);
-    } else {
-      const searchUrl = buildSearchUrl(site, keyword);
-      if (!searchUrl) continue;
-      added += await scrapeSinglePage(projectId, searchUrl, seen);
+  if (mode === 'image-database') {
+    if (!Array.isArray(keywords) || !Array.isArray(sites) || sites.length === 0) {
+      return res.status(400).json({ error: 'Missing keywords or sites' });
     }
+
+    const seen = new Set();
+    let totalAdded = 0;
+
+    // Process each keyword with each selected site
+    for (const keyword of keywords) {
+      for (const site of sites) {
+        console.log(`🔍 Scraping ${site} with keyword="${keyword}"`);
+        
+        if (site === 'pexels') {
+          // Get Pexels locales for this site
+          const pexelsLocales = languages ? 
+            languages.filter(lang => lang.startsWith('pexels:')).map(lang => lang.replace('pexels:', '')) :
+            [''];
+          
+          if (pexelsLocales.length === 0) pexelsLocales.push(''); // Default if none selected
+          
+          for (const locale of pexelsLocales) {
+            console.log(`  📍 Using Pexels locale: ${locale || 'default'}`);
+            totalAdded += await scrapeFromPexels(projectId, keyword, seen, locale);
+          }
+        } 
+        else if (site === 'pixabay') {
+          // Get Pixabay languages for this site
+          const pixabayLangs = languages ? 
+            languages.filter(lang => lang.startsWith('pixabay:')).map(lang => lang.replace('pixabay:', '')) :
+            [''];
+          
+          if (pixabayLangs.length === 0) pixabayLangs.push(''); // Default if none selected
+          
+          for (const lang of pixabayLangs) {
+            console.log(`  🌍 Using Pixabay language: ${lang || 'default'}`);
+            totalAdded += await scrapeFromPixabay(projectId, keyword, seen, lang);
+          }
+        } 
+        else if (site === 'unsplash') {
+          totalAdded += await scrapeFromUnsplash(projectId, keyword, seen);
+        } 
+        else if (site === 'freepik') {
+          totalAdded += await scrapeFromFreepik(projectId, keyword, seen);
+        } 
+        else if (site === 'wikimedia') {
+          totalAdded += await scrapeFromWikimedia(projectId, keyword, seen);
+        } 
+        else {
+          const searchUrl = buildSearchUrl(site, keyword);
+          if (searchUrl) {
+            totalAdded += await scrapeSinglePage(projectId, searchUrl, seen);
+          }
+        }
+      }
+    }
+
+    console.log(`✅ Total added across all sites and languages: ${totalAdded}`);
+    return res.json({ added: totalAdded });
   }
-
-  return res.json({ added });
-}
-
-
 
   if (mode === 'custom-website') {
     if (!Array.isArray(urls)) return res.status(400).json({ error: 'Missing URL list' });
@@ -181,39 +589,44 @@ if (site === 'pexels') {
   return res.status(400).json({ error: 'Invalid mode' });
 });
 
+// ✅ POST /api/projects/:id/photos/delete — delete selected photos
+app.post('/api/projects/:id/photos/delete', async (req, res) => {
+  const { ids } = req.body;
+  const projectId = req.params.id;
 
-
-
-// Connect to MongoDB and start the server
-mongoose.connect(MONGO_URI).then(() => {
-  console.log('✅ Connected to MongoDB');
-  app.listen(PORT, () => console.log(`🚀 API listening on http://localhost:${PORT}`));
-}).catch(err => {
-  console.error('MongoDB connection error', err);
-})
-
-// Get photo model
-app.get('/api/projects/:id/photos', async (req, res) => {
-  try {
-    const photos = await Photo.find({ projectId: req.params.id });
-    res.json({ photos });
-  } catch (err) {
-    console.error('Failed to load photos', err);
-    res.status(500).json({ error: 'Failed to load photos' });
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'No photo IDs provided' });
   }
-});
 
-app.delete('/api/projects/:id', async (req, res) => {
   try {
-    const result = await Project.findByIdAndDelete(req.params.id);
-    if (!result) return res.status(404).json({ error: 'Project not found' });
+    await Photo.deleteMany({ _id: { $in: ids }, projectId });
     res.json({ success: true });
   } catch (err) {
-    console.error('Delete project error:', err);
-    res.status(500).json({ error: 'Failed to delete project' });
+    console.error('Error deleting photos:', err);
+    res.status(500).json({ error: 'Failed to delete photos' });
   }
 });
 
+// Helper function to build search URLs
+function buildSearchUrl(site, keyword) {
+  const encoded = encodeURIComponent(keyword);
+  switch (site) {
+    case 'unsplash':
+      return `https://unsplash.com/s/photos/${encoded}`;
+    case 'pexels':
+      return `https://www.pexels.com/search/${encoded}/`;
+    case 'freepik':
+      return `https://www.freepik.com/search?format=search&query=${encoded}`;
+    case 'pixabay':
+      return `https://pixabay.com/images/search/${encoded}/`;
+    case 'wikimedia':
+      return `https://commons.wikimedia.org/w/index.php?search=${encoded}&title=Special:MediaSearch`;
+    default:
+      return null;
+  }
+}
+
+// Scraping functions
 async function scrapeSinglePage(projectId, url, seen) {
   try {
     const { data } = await axios.get(url, {
@@ -249,7 +662,6 @@ async function scrapeSinglePage(projectId, url, seen) {
   }
 }
 
-
 async function crawlEntireSite(projectId, baseUrl, seen) {
   const visited = new Set();
   let toVisit = [baseUrl];
@@ -280,43 +692,6 @@ async function crawlEntireSite(projectId, baseUrl, seen) {
   }
 
   return totalAdded;
-}
-
-// delete button
-app.post('/api/projects/:id/photos/delete', async (req, res) => {
-  const { ids } = req.body;
-  const projectId = req.params.id;
-
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return res.status(400).json({ error: 'No photo IDs provided' });
-  }
-
-  try {
-    await Photo.deleteMany({ _id: { $in: ids }, projectId });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error deleting photos:', err);
-    res.status(500).json({ error: 'Failed to delete photos' });
-  }
-});
-
-// searchUrl helper function
-function buildSearchUrl(site, keyword) {
-  const encoded = encodeURIComponent(keyword);
-  switch (site) {
-    case 'unsplash':
-      return `https://unsplash.com/s/photos/${encoded}`;
-    case 'pexels':
-      return `https://www.pexels.com/search/${encoded}/`;
-    case 'freepik':
-      return `https://www.freepik.com/search?format=search&query=${encoded}`;
-    case 'pixabay':
-      return `https://pixabay.com/images/search/${encoded}/`;
-    case 'wikimedia':
-      return `https://commons.wikimedia.org/w/index.php?search=${encoded}&title=Special:MediaSearch`;
-    default:
-      return null;
-  }
 }
 
 async function scrapeFromPexels(projectId, keyword, seen, locale = '') {
@@ -366,7 +741,6 @@ async function scrapeFromPexels(projectId, keyword, seen, locale = '') {
     return 0;
   }
 }
-
 
 async function scrapeFromUnsplash(projectId, keyword, seen) {
   const accessKey = process.env.UNSPLASH_ACCESS_KEY;
@@ -485,8 +859,6 @@ async function scrapeFromPixabay(projectId, keyword, seen, lang = '') {
 
   return added;
 }
-
-
 
 async function scrapeFromFreepik(projectId, keyword, seen) {
   let added = 0;
@@ -608,10 +980,15 @@ async function scrapeFromWikimedia(projectId, keyword, seen) {
   return added;
 }
 
-// get backend good and running
+// Health check endpoint
 app.get('/', (req, res) => {
   res.send('✅ Backend is up and running');
 });
 
-
-;
+// Connect to MongoDB and start the server
+mongoose.connect(MONGO_URI).then(() => {
+  console.log('✅ Connected to MongoDB');
+  app.listen(PORT, () => console.log(`🚀 API listening on http://localhost:${PORT}`));
+}).catch(err => {
+  console.error('MongoDB connection error', err);
+});
