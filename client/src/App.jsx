@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
+import MassiveCollectionInterface from './MassiveCollectionInterface'; // ADD THIS LINE
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 // Configure axios base URL to your backend server (e.g., http://localhost:5000)
@@ -200,6 +201,8 @@ function ProjectScreen({ project, onBack, onError }) {
   const [selectedLanguages, setSelectedLanguages] = useState([]);
   const [csvFile, setCsvFile] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [migrationStatus, setMigrationStatus] = useState(null);
+  const [isMigrating, setIsMigrating] = useState(false);
   
   // Pagination states
   const [page, setPage] = useState(1);
@@ -530,26 +533,65 @@ function ProjectScreen({ project, onBack, onError }) {
       onError('Failed to delete selected photos.');
     }
   }
+
+  async function checkMigrationStatus() {
+    try {
+      const { data } = await axios.get(`/api/projects/${project._id}/photos/migration-status`);
+      setMigrationStatus(data);
+    } catch (err) {
+      console.error('Failed to check migration status:', err);
+    }
+  }
+
+  async function handleMigratePixabay() {
+    if (!window.confirm(`This will migrate ${migrationStatus?.needsMigration || 0} Pixabay URLs to permanent URLs. This may take a few minutes. Continue?`)) {
+      return;
+    }
+
+    try {
+      setIsMigrating(true);
+      const { data } = await axios.post(`/api/projects/${project._id}/photos/migrate-pixabay`);
+      
+      alert(`Migration complete!\n\nMigrated: ${data.migrated}\nFailed: ${data.failed}\n\nPlease refresh the page to see the updated URLs.`);
+      
+      // Refresh migration status and photos
+      await checkMigrationStatus();
+      await loadStorage(true);
+      
+    } catch (err) {
+      console.error('Migration failed:', err);
+      alert('Migration failed. Please check the console for details.');
+    } finally {
+      setIsMigrating(false);
+    }
+  }
+
+  // Check migration status when switching to storage tab
+  useEffect(() => {
+    if (tab === 'storage') {
+      checkMigrationStatus();
+    }
+  }, [tab]);
   
   return (
     <div>
       <button style={{ marginBottom: '16px', color: '#4B5563', background: 'none', border: 'none', cursor: 'pointer' }} onClick={onBack}>← Back</button>
       <h2 style={{ textAlign: 'center', fontSize: '1.25rem', fontWeight: '600', marginBottom: '16px' }}>{project.name}</h2>
-      <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginBottom: '16px' }}>
-        {['add', 'storage', 'distribution', 'use'].map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            style={{
-              padding: '8px 16px', borderRadius: '4px', cursor: 'pointer',
-              backgroundColor: tab === t ? '#3B82F6' : '#E5E7EB',
-              color: tab === t ? 'white' : 'black', border: 'none'
-            }}
-          >
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
+<div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginBottom: '16px' }}>
+  {['add', 'storage', 'use', 'massive'].map(t => (
+    <button
+      key={t}
+      onClick={() => setTab(t)}
+      style={{
+        padding: '8px 16px', borderRadius: '4px', cursor: 'pointer',
+        backgroundColor: tab === t ? '#3B82F6' : '#E5E7EB',
+        color: tab === t ? 'white' : 'black', border: 'none'
+      }}
+    >
+      {t.charAt(0).toUpperCase() + t.slice(1)}
+    </button>
+  ))}
+</div>
 
       {tab === 'add' && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
@@ -628,16 +670,32 @@ function ProjectScreen({ project, onBack, onError }) {
                             Pixabay Languages:
                           </div>
                           {[
-                            { value: 'en', label: 'English' },
-                            { value: 'es', label: 'Spanish' },
-                            { value: 'fr', label: 'French' },
-                            { value: 'de', label: 'German' },
-                            { value: 'it', label: 'Italian' },
-                            { value: 'pt', label: 'Portuguese' },
-                            { value: 'ru', label: 'Russian' },
-                            { value: 'ja', label: 'Japanese' },
-                            { value: 'ko', label: 'Korean' },
-                            { value: 'zh', label: 'Chinese' }
+                            { value: 'cs', label: 'Czech (cs)' },
+                            { value: 'da', label: 'Danish (da)' },
+                            { value: 'de', label: 'German (de)' },
+                            { value: 'en', label: 'English (en)' },
+                            { value: 'es', label: 'Spanish (es)' },
+                            { value: 'fr', label: 'French (fr)' },
+                            { value: 'id', label: 'Indonesian (id)' },
+                            { value: 'it', label: 'Italian (it)' },
+                            { value: 'hu', label: 'Hungarian (hu)' },
+                            { value: 'nl', label: 'Dutch (nl)' },
+                            { value: 'no', label: 'Norwegian (no)' },
+                            { value: 'pl', label: 'Polish (pl)' },
+                            { value: 'pt', label: 'Portuguese (pt)' },
+                            { value: 'ro', label: 'Romanian (ro)' },
+                            { value: 'sk', label: 'Slovak (sk)' },
+                            { value: 'fi', label: 'Finnish (fi)' },
+                            { value: 'sv', label: 'Swedish (sv)' },
+                            { value: 'tr', label: 'Turkish (tr)' },
+                            { value: 'vi', label: 'Vietnamese (vi)' },
+                            { value: 'th', label: 'Thai (th)' },
+                            { value: 'bg', label: 'Bulgarian (bg)' },
+                            { value: 'ru', label: 'Russian (ru)' },
+                            { value: 'el', label: 'Greek (el)' },
+                            { value: 'ja', label: 'Japanese (ja)' },
+                            { value: 'ko', label: 'Korean (ko)' },
+                            { value: 'zh', label: 'Chinese (zh)' }
                           ].map(lang => (
                             <label key={`pixabay-${lang.value}`} style={{ display: 'flex', alignItems: 'center', fontSize: '12px' }}>
                               <input
@@ -660,15 +718,33 @@ function ProjectScreen({ project, onBack, onError }) {
                           </div>
                           {[
                             { value: 'en-US', label: 'English (US)' },
-                            { value: 'es-ES', label: 'Spanish (Spain)' },
-                            { value: 'fr-FR', label: 'French' },
-                            { value: 'de-DE', label: 'German' },
-                            { value: 'it-IT', label: 'Italian' },
                             { value: 'pt-BR', label: 'Portuguese (Brazil)' },
-                            { value: 'ru-RU', label: 'Russian' },
-                            { value: 'ja-JP', label: 'Japanese' },
-                            { value: 'ko-KR', label: 'Korean' },
-                            { value: 'zh-CN', label: 'Chinese (China)' }
+                            { value: 'es-ES', label: 'Spanish (Spain)' },
+                            { value: 'ca-ES', label: 'Catalan (Spain)' },
+                            { value: 'de-DE', label: 'German (Germany)' },
+                            { value: 'it-IT', label: 'Italian (Italy)' },
+                            { value: 'fr-FR', label: 'French (France)' },
+                            { value: 'sv-SE', label: 'Swedish (Sweden)' },
+                            { value: 'id-ID', label: 'Indonesian (Indonesia)' },
+                            { value: 'pl-PL', label: 'Polish (Poland)' },
+                            { value: 'ja-JP', label: 'Japanese (Japan)' },
+                            { value: 'zh-TW', label: 'Chinese (Taiwan)' },
+                            { value: 'zh-CN', label: 'Chinese (China)' },
+                            { value: 'ko-KR', label: 'Korean (Korea)' },
+                            { value: 'th-TH', label: 'Thai (Thailand)' },
+                            { value: 'nl-NL', label: 'Dutch (Netherlands)' },
+                            { value: 'hu-HU', label: 'Hungarian (Hungary)' },
+                            { value: 'vi-VN', label: 'Vietnamese (Vietnam)' },
+                            { value: 'cs-CZ', label: 'Czech (Czech Republic)' },
+                            { value: 'da-DK', label: 'Danish (Denmark)' },
+                            { value: 'fi-FI', label: 'Finnish (Finland)' },
+                            { value: 'uk-UA', label: 'Ukrainian (Ukraine)' },
+                            { value: 'el-GR', label: 'Greek (Greece)' },
+                            { value: 'ro-RO', label: 'Romanian (Romania)' },
+                            { value: 'nb-NO', label: 'Norwegian (Norway)' },
+                            { value: 'sk-SK', label: 'Slovak (Slovakia)' },
+                            { value: 'tr-TR', label: 'Turkish (Turkey)' },
+                            { value: 'ru-RU', label: 'Russian (Russia)' }
                           ].map(locale => (
                             <label key={`pexels-${locale.value}`} style={{ display: 'flex', alignItems: 'center', fontSize: '12px' }}>
                               <input
@@ -730,6 +806,47 @@ function ProjectScreen({ project, onBack, onError }) {
 
       {tab === 'storage' && (
         <div>
+          {/* Migration Status Alert - Only show if there are Pixabay photos that need migration */}
+          {migrationStatus && migrationStatus.needsMigration > 0 && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '12px 16px',
+              backgroundColor: '#FEF3C7',
+              border: '1px solid #FCD34D',
+              borderRadius: '8px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '10px'
+            }}>
+              <div>
+                <div style={{ fontWeight: 'bold', color: '#92400E', marginBottom: '4px' }}>
+                  ⚠️ Pixabay URL Migration Available
+                </div>
+                <div style={{ fontSize: '14px', color: '#78350F' }}>
+                  {migrationStatus.needsMigration.toLocaleString()} of {migrationStatus.totalPixabay.toLocaleString()} Pixabay photos need migration to permanent URLs.
+                  {migrationStatus.migrated > 0 && ` (${migrationStatus.migrated.toLocaleString()} already migrated)`}
+                </div>
+              </div>
+              <button
+                onClick={handleMigratePixabay}
+                disabled={isMigrating}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: isMigrating ? '#9CA3AF' : '#F59E0B',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: isMigrating ? 'not-allowed' : 'pointer',
+                  fontWeight: 'bold'
+                }}
+              >
+                {isMigrating ? 'Migrating...' : 'Migrate Now'}
+              </button>
+            </div>
+          )}
+
           {/* Total photos count */}
           <div style={{ 
             marginBottom: '16px', 
@@ -1159,27 +1276,48 @@ function ProjectScreen({ project, onBack, onError }) {
               </thead>
 
               <tbody>
-                {photos.map(p => (
-                  <tr key={p._id} style={{ background: '#F9FAFB', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
-                    <td style={{ ...td, textAlign: 'center' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(p._id)}
-                        onChange={() => togglePhotoSelection(p._id)}
-                      />
-                    </td>
-                    <td style={{ ...td, wordWrap: 'break-word' }}>{p.url}</td>
-                    <td style={{ ...td, wordWrap: 'break-word' }}>{p.description || '-'}</td>
-                    <td style={td}>{p.language || '-'}</td>
-                    <td style={td}>{p.locale || '-'}</td>
-                    <td style={td}>{p.textAmount || '-'}</td>
-                    <td style={td}>{p.imageType || '-'}</td>
-                    <td style={{ ...td, textAlign: 'center' }}>{p.usageCount}</td>
-                    <td style={{ ...td, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                      {p.metadata ? JSON.stringify(p.metadata, null, 1) : '-'}
-                    </td>
-                  </tr>
-                ))}
+                {photos.map(p => {
+                  const isPixabay = p.metadata?.source === 'pixabay';
+                  const isPermanentUrl = p.url?.includes('pixabay.com/photos/');
+                  
+                  return (
+                    <tr key={p._id} style={{ background: '#F9FAFB', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+                      <td style={{ ...td, textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(p._id)}
+                          onChange={() => togglePhotoSelection(p._id)}
+                        />
+                      </td>
+                      <td style={{ ...td, wordWrap: 'break-word' }}>
+                        {p.url}
+                        {isPixabay && !isPermanentUrl && (
+                          <span style={{ 
+                            display: 'inline-block',
+                            marginLeft: '8px',
+                            padding: '2px 6px',
+                            backgroundColor: '#FEF3C7',
+                            color: '#92400E',
+                            fontSize: '10px',
+                            borderRadius: '4px',
+                            fontWeight: 'bold'
+                          }}>
+                            TEMP URL
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ ...td, wordWrap: 'break-word' }}>{p.description || '-'}</td>
+                      <td style={td}>{p.language || '-'}</td>
+                      <td style={td}>{p.locale || '-'}</td>
+                      <td style={td}>{p.textAmount || '-'}</td>
+                      <td style={td}>{p.imageType || '-'}</td>
+                      <td style={{ ...td, textAlign: 'center' }}>{p.usageCount}</td>
+                      <td style={{ ...td, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {p.metadata ? JSON.stringify(p.metadata, null, 1) : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
                 
                 {/* Loading indicator */}
                 {loading && (
@@ -1445,15 +1583,49 @@ function ProjectScreen({ project, onBack, onError }) {
             </button>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '16px', justifyItems: 'center' }}>
-            {usedPhotos.map(p => (
-              <div key={p._id} style={{ border: '1px solid #DDD', padding: '8px', borderRadius: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                <img src={p.url} alt="" style={{ width: '100%', height: 'auto' }} />
-                <p style={{ fontSize: '0.875rem', marginTop: '4px' }}>Used {p.usageCount} times</p>
-              </div>
-            ))}
+            {usedPhotos.map(p => {
+              const isPixabay = p.metadata?.source === 'pixabay';
+              const isPermanentUrl = p.url?.includes('pixabay.com/photos/');
+              // For Pixabay photos with permanent URLs, use the temp image URL for display
+              const displayUrl = (isPixabay && isPermanentUrl && p.metadata?.tempImageUrl) 
+                ? p.metadata.tempImageUrl 
+                : p.url;
+              
+              return (
+                <div key={p._id} style={{ border: '1px solid #DDD', padding: '8px', borderRadius: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                  <img 
+                    src={displayUrl} 
+                    alt="" 
+                    style={{ width: '100%', height: 'auto' }}
+                    onError={(e) => {
+                      // Fallback to preview URL if main image fails
+                      if (isPixabay && p.metadata?.previewURL) {
+                        e.target.src = p.metadata.previewURL;
+                      }
+                    }}
+                  />
+                  <p style={{ fontSize: '0.875rem', marginTop: '4px' }}>Used {p.usageCount} times</p>
+                  {isPixabay && (
+                    <p style={{ 
+                      fontSize: '0.75rem', 
+                      color: isPermanentUrl ? '#059669' : '#92400E',
+                      backgroundColor: isPermanentUrl ? '#D1FAE5' : '#FEF3C7',
+                      padding: '2px 4px',
+                      borderRadius: '4px',
+                      marginTop: '4px'
+                    }}>
+                      {isPermanentUrl ? '✓ Permanent' : '⚠️ Temp URL'}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
+      {tab === 'massive' && (
+  <MassiveCollectionInterface projectId={project._id} />
+)}
     </div>
   );
 }
